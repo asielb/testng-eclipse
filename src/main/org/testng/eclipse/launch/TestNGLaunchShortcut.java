@@ -11,6 +11,10 @@ import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeRoot;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.JavaProject;
+import org.eclipse.jdt.internal.core.PackageFragment;
+import org.eclipse.jdt.internal.core.PackageFragmentRoot;
+import org.eclipse.jdt.internal.core.SourceType;
 import org.eclipse.jdt.internal.ui.actions.SelectionConverter;
 import org.eclipse.jdt.ui.JavaUI;
 import org.eclipse.jface.text.ITextSelection;
@@ -18,7 +22,13 @@ import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.jface.viewers.StructuredSelection;
 import org.eclipse.ui.IEditorPart;
+import org.testng.eclipse.TestNGPlugin;
+import org.testng.eclipse.collections.Lists;
+import org.testng.eclipse.launch.tester.JavaTypeExtender;
 import org.testng.eclipse.util.LaunchUtil;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Right-click launcher.
@@ -29,18 +39,74 @@ public class TestNGLaunchShortcut implements ILaunchShortcut {
 
   public void launch(ISelection selection, String mode) {
     if(selection instanceof StructuredSelection) {
-      Object obj = ((StructuredSelection) selection).getFirstElement();
-      IJavaElement element= null;
-      if(obj instanceof IJavaElement) {
-        element= (IJavaElement) obj;
+      List<IType> types = Lists.newArrayList();
+      IJavaProject project = null;
+
+      for (Object obj : ((StructuredSelection) selection).toArray()) { 
+        IJavaElement element= null;
+        // Special case for IMethod: we run it directly here (and it must appear before
+        // the test for IJavaElement, which would return true but is more general).
+        // Anything above IMethod will be accumulated in the types collection since
+        // it can contain more than one TestNG type.
+        if (obj instanceof IMethod) {
+          run((IMethod) obj, mode);
+        }
+        else if(obj instanceof IJavaElement) {
+          element= (IJavaElement) obj;
+        }
+        else if(obj instanceof IAdaptable) {
+          element= (IJavaElement) ((IAdaptable) obj).getAdapter(IJavaElement.class);
+        }
+        project = element.getJavaProject();
+
+        try {
+          maybeAddJavaElement(element, types);
+        } catch (JavaModelException e) {
+          TestNGPlugin.log(e);
+        }
+
       }
-      else if(obj instanceof IAdaptable) {
-        element= (IJavaElement) ((IAdaptable) obj).getAdapter(IJavaElement.class);
-      }
-      if(null != element) {
-        run(element, mode);
+      
+      if (! types.isEmpty()) {
+        LaunchUtil.launchTypesConfiguration(project, types, mode);
       }
     }
+  }
+
+  private void maybeAddJavaElement(IJavaElement element, List<IType> units)
+      throws JavaModelException {
+    p("Examining Java element:" + element);
+    if (element != null) {
+      if (element instanceof JavaProject) {
+        JavaProject p = (JavaProject) element;
+        for (IJavaElement e : p.getChildren()) {
+          maybeAddJavaElement(e, units);
+        }
+      } else if (element instanceof SourceType) {
+        units.add((SourceType) element);
+      } else if (element instanceof ICompilationUnit) {
+        units.addAll(Arrays.asList(((ICompilationUnit) element).getTypes()));
+      } else if (element instanceof PackageFragment) {
+        PackageFragment p = (PackageFragment) element;
+        for (ICompilationUnit icu : p.getCompilationUnits()) {
+          units.addAll(Arrays.asList(icu.getTypes()));
+        }
+      } else if (element instanceof PackageFragmentRoot) {
+        PackageFragmentRoot pfr = (PackageFragmentRoot) element;
+        for (IJavaElement e : pfr.getChildren()) {
+          if (JavaTypeExtender.isTest(e)) {
+            maybeAddJavaElement(e, units);
+          }
+        }
+      } else {
+        p("Ignoring non compilation unit selection: " + element);
+      }
+    }
+  }
+
+  private static void p(String s) {
+    TestNGPlugin.log("[TestNGLaunchShortcut] " + s);
+//    System.out.println("[TestNGLaunchShortcut] " + s);
   }
 
   public void launch(IEditorPart editor, String mode) {
@@ -104,7 +170,8 @@ public class TestNGLaunchShortcut implements ILaunchShortcut {
       
       case IJavaElement.COMPILATION_UNIT:
       {
-        LaunchUtil.launchCompilationUnitConfiguration(ijp, (ICompilationUnit) ije, mode); 
+        LaunchUtil.launchCompilationUnitConfiguration(ijp,
+            Arrays.asList(new ICompilationUnit[] { (ICompilationUnit) ije }), mode); 
 
         return;
       }
@@ -118,7 +185,7 @@ public class TestNGLaunchShortcut implements ILaunchShortcut {
       
       case IJavaElement.METHOD:
       {
-        LaunchUtil.launchMethodConfiguration(ijp, (IMethod) ije, null /*complianceLevel*/, mode); 
+        LaunchUtil.launchMethodConfiguration(ijp, (IMethod) ije, mode); 
         
         return;
       }

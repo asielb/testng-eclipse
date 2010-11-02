@@ -27,7 +27,6 @@ import org.eclipse.search.internal.ui.text.FileSearchResult;
 import org.eclipse.search.ui.ISearchQuery;
 import org.eclipse.search.ui.text.FileTextSearchScope;
 import org.eclipse.ui.PlatformUI;
-import org.testng.TestNG;
 import org.testng.eclipse.TestNGPlugin;
 import org.testng.eclipse.TestNGPluginConstants;
 import org.testng.eclipse.collections.Lists;
@@ -184,7 +183,7 @@ public class LaunchUtil {
 
     attrs.put(TestNGLaunchConfigurationConstants.TYPE, LaunchType.CLASS.ordinal());
     attrs.put(TestNGLaunchConfigurationConstants.CLASS_TEST_LIST, classNames);
-    attrs.put(TestNGLaunchConfigurationConstants.TESTNG_COMPLIANCE_LEVEL_ATTR, annotationType);
+//    attrs.put(TestNGLaunchConfigurationConstants.TESTNG_COMPLIANCE_LEVEL_ATTR, annotationType);
     attrs.put(TestNGLaunchConfigurationConstants.ALL_METHODS_LIST, 
         ConfigurationHelper.toClassMethodsMap(classMethods));
 
@@ -224,14 +223,12 @@ public class LaunchUtil {
   
   public static void launchMethodConfiguration(IJavaProject javaProject,
           IMethod imethod,
-          String complianceLevel,
           String runMode) {
-	  launchMethodConfiguration (javaProject, imethod, complianceLevel, runMode, null);
+	  launchMethodConfiguration (javaProject, imethod, runMode, null);
   }
   
   public static void launchMethodConfiguration(IJavaProject javaProject,
           IMethod imethod,
-          String complianceLevel,
           String runMode,
           RunInfo runInfo) {
 	     
@@ -248,7 +245,7 @@ public class LaunchUtil {
       groupDependencyWarning(imethod.getElementName(), groups);
     }
 
-    launchMethodBasedConfiguration(javaProject, methods, complianceLevel, runMode, runInfo);
+    launchMethodBasedConfiguration(javaProject, methods, runMode, runInfo);
   }
  
   /**
@@ -267,7 +264,7 @@ public class LaunchUtil {
   
   
   private static void launchMethodBasedConfiguration(IJavaProject ijp,  
-		  IMethod[] methods, String annotationType, String runMode, RunInfo runInfo) {
+		  IMethod[] methods, String runMode, RunInfo runInfo) {
     Set typesSet= new HashSet();
     for(int i= 0; i < methods.length; i++) {
       typesSet.add(methods[i].getDeclaringType());
@@ -293,7 +290,7 @@ public class LaunchUtil {
       typeNames.add(types[i].getFullyQualifiedName());
     }
     String name = typeNames.get(0).toString() + "." + methodNames.get(0).toString();
-    final String complianceLevel= annotationType != null ? annotationType : getQuickComplianceLevel(types);
+//    final String complianceLevel= annotationType != null ? annotationType : getQuickComplianceLevel(types);
   
     ILaunchConfigurationWorkingCopy workingCopy= createLaunchConfiguration(ijp.getProject(), name, runInfo);
     workingCopy.setAttribute(TestNGLaunchConfigurationConstants.CLASS_TEST_LIST,
@@ -308,8 +305,8 @@ public class LaunchUtil {
                              ConfigurationHelper.toClassMethodsMap(classMethods));
     workingCopy.setAttribute(TestNGLaunchConfigurationConstants.PARAMS,
                              solveParameters(methods));
-    workingCopy.setAttribute(TestNGLaunchConfigurationConstants.TESTNG_COMPLIANCE_LEVEL_ATTR,
-                             complianceLevel);
+//    workingCopy.setAttribute(TestNGLaunchConfigurationConstants.TESTNG_COMPLIANCE_LEVEL_ATTR,
+//                             complianceLevel);
     if (runInfo != null) {
     	// set the class and method
     	
@@ -332,21 +329,45 @@ public class LaunchUtil {
   /**
    * Launch a compilation unit (a source file) based test.
    */
-  public static void launchCompilationUnitConfiguration(IJavaProject ijp, ICompilationUnit icu, String mode) {
-    IType[] types= null;
-    try {
-      types = icu.getTypes();
+  public static void launchCompilationUnitConfiguration(IJavaProject ijp,
+      List<ICompilationUnit> units, String mode) {
+    List<IType> types = Lists.newArrayList();
+    IType mainType = null;
+    for (ICompilationUnit icu : units) {
+      try {
+        for (IType type : icu.getTypes()) {
+          types.add(type);
+        }
+      }
+      catch(JavaModelException jme) {
+        TestNGPlugin.log(new Status(IStatus.ERROR, TestNGPlugin.PLUGIN_ID, TestNGPluginConstants.LAUNCH_ERROR, "No types in compilation unit " + icu.getElementName(), jme));
+      }
+
+      if(null == types) return;
+
+      mainType = icu.findPrimaryType();
     }
-    catch(JavaModelException jme) {
-      TestNGPlugin.log(new Status(IStatus.ERROR, TestNGPlugin.PLUGIN_ID, TestNGPluginConstants.LAUNCH_ERROR, "No types in compilation unit " + icu.getElementName(), jme));
-    }
 
-    if(null == types) return;
+    launchTypeBasedConfiguration(ijp, createConfName(mainType, units.size()),
+        types.toArray(new IType[types.size()]), mode);
+  }
 
-    IType mainType= icu.findPrimaryType();
-    final String confName= mainType != null ? mainType.getElementName() : icu.getElementName();
+  /**
+   * @return the name of this configuration, which will be displayed in the menu. For
+   * one type, it's the name of this type. For more than one type, just show the name
+   * of the first type followed by ellipses.
+   */
+  private static String createConfName(IType mainType, int unitCount) {
+    String result = mainType.getElementName();
+    if (unitCount > 1) result = result + ", ...";
 
-    launchTypeBasedConfiguration(ijp, confName, types, mode);
+    return result;
+  }
+
+  public static void launchTypesConfiguration(IJavaProject project, List<IType> types, String mode)
+  {
+    launchTypeBasedConfiguration(project, createConfName(types.get(0), types.size()),
+        types.toArray(new IType[types.size()]), mode);
   }
 
   private static void launchTypeBasedConfiguration(IJavaProject ijp, String confName, IType[] types, String mode) {
@@ -370,8 +391,8 @@ public class LaunchUtil {
                              ConfigurationHelper.toClassMethodsMap(classMethods));
     workingCopy.setAttribute(TestNGLaunchConfigurationConstants.CLASS_TEST_LIST,
                              typeNames);
-    workingCopy.setAttribute(TestNGLaunchConfigurationConstants.TESTNG_COMPLIANCE_LEVEL_ATTR,
-                             getQuickComplianceLevel(types));
+//    workingCopy.setAttribute(TestNGLaunchConfigurationConstants.TESTNG_COMPLIANCE_LEVEL_ATTR,
+//                             getQuickComplianceLevel(types));
     workingCopy.setAttribute(TestNGLaunchConfigurationConstants.PARAMS,
                              solveParameters(types));
     workingCopy.setAttribute(TestNGLaunchConfigurationConstants.METHOD_TEST_LIST,
@@ -506,27 +527,27 @@ public class LaunchUtil {
    * Uses the Eclipse search support to look for @Test annotation and decide
    * if the compliance level should be set to JDK or JAVADOC.
    */
-  private static String getQuickComplianceLevel(IType[] types) {
-    List resources= new ArrayList();
-    for(int i= 0; i < types.length; i++) {
-      try {
-        resources.add(types[i].getCompilationUnit().getCorrespondingResource());
-      }
-      catch(JavaModelException jmex) {
-        ;
-      }
-    }
-    IResource[] scopeResources= (IResource[]) resources.toArray(new IResource[resources.size()]);
-    ISearchQuery query= new FileSearchQuery("@(Test|Before|After|Factory)(\\(.+)?", 
-        true /*regexp*/ , 
-        true /*casesensitive*/, 
-        FileTextSearchScope.newSearchScope(scopeResources, getJavaLikeExtensions(), false));
-    query.run(new NullProgressMonitor());
-    FileSearchResult result= (FileSearchResult) query.getSearchResult(); 
-    Object[] elements= result.getElements();
-    
-    return elements != null && elements.length > 0 ? TestNG.JDK_ANNOTATION_TYPE : TestNG.JAVADOC_ANNOTATION_TYPE;
-  }
+//  private static String getQuickComplianceLevel(IType[] types) {
+//    List resources= new ArrayList();
+//    for(int i= 0; i < types.length; i++) {
+//      try {
+//        resources.add(types[i].getCompilationUnit().getCorrespondingResource());
+//      }
+//      catch(JavaModelException jmex) {
+//        ;
+//      }
+//    }
+//    IResource[] scopeResources= (IResource[]) resources.toArray(new IResource[resources.size()]);
+//    ISearchQuery query= new FileSearchQuery("@(Test|Before|After|Factory)(\\(.+)?", 
+//        true /*regexp*/ , 
+//        true /*casesensitive*/, 
+//        FileTextSearchScope.newSearchScope(scopeResources, getJavaLikeExtensions(), false));
+//    query.run(new NullProgressMonitor());
+//    FileSearchResult result= (FileSearchResult) query.getSearchResult(); 
+//    Object[] elements= result.getElements();
+//    
+//    return elements != null && elements.length > 0 ? TestNG.JDK_ANNOTATION_TYPE : TestNG.JAVADOC_ANNOTATION_TYPE;
+//  }
   
   private static String[] getJavaLikeExtensions() {
     char[][] exts = Util.getJavaLikeExtensions();
@@ -618,4 +639,5 @@ public class LaunchUtil {
 	  catch (CoreException ce) {}
 	  return config;
   }
+
 }

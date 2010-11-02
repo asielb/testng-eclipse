@@ -42,6 +42,9 @@ import java.util.Vector;
 
 public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigurationDelegate {
 
+  /**
+   * Launch RemoteTestNG (except if we're in debug mode).
+   */
   public void launch(ILaunchConfiguration configuration, String mode, ILaunch launch,
       IProgressMonitor monitor) throws CoreException {
     IJavaProject javaProject = getJavaProject(configuration);
@@ -87,9 +90,11 @@ public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigu
     }
 
     // Program & VM args
-    String vmArgs = getVMArguments(configuration) + " "
-        + TestNGLaunchConfigurationConstants.VM_ENABLEASSERTION_OPTION; // $NON-NLS-1$
-    ExecutionArguments execArgs = new ExecutionArguments(vmArgs, ""); //$NON-NLS-1$
+    StringBuilder vmArgs = new StringBuilder(getVMArguments(configuration))
+        .append(" ")
+        .append(TestNGLaunchConfigurationConstants.VM_ENABLEASSERTION_OPTION); // $NON-NLS-1$
+    addDebugProperties(vmArgs);
+    ExecutionArguments execArgs = new ExecutionArguments(vmArgs.toString(), ""); //$NON-NLS-1$
     String[] envp = DebugPlugin.getDefault().getLaunchManager().getEnvironment(configuration);
 
     VMRunnerConfiguration runConfig = createVMRunner(configuration, launch, jproject, port, mode);
@@ -107,6 +112,26 @@ public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigu
   }
 
   /**
+   * Pass the system properties we were called with to the RemoteTestNG process.
+   */
+  private void addDebugProperties(StringBuilder vmArgs) {
+    String[] debugProperties = new String[] {
+        RemoteTestNG.PROPERTY_DEBUG,
+        RemoteTestNG.PROPERTY_VERBOSE
+    };
+    for (String p : debugProperties) {
+      if (System.getProperty(p) != null) {
+        vmArgs.append(" -D").append(p);
+      }
+    }
+  }
+
+  private String getRemoteClassName() {
+    return TestNGPlugin.isDebug() ? EmptyRemoteTestNG.class.getName()
+        : RemoteTestNG.class.getName();
+  }
+
+  /**
    * Add a VMRunner with a class path that includes org.eclipse.jdt.junit
    * plugin. In addition it adds the port for the RemoteTestRunner as an
    * argument
@@ -115,10 +140,10 @@ public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigu
       ILaunch launch, final IJavaProject jproject, final int port, final String runMode)
       throws CoreException {
 
-    String javaVersion = ConfigurationHelper.getComplianceLevel(jproject, configuration);
-    String[] classPath = createClassPath(configuration, javaVersion);
+    String[] classPath = createClassPath(configuration);
     String progArgs = getProgramArguments(configuration);
-    VMRunnerConfiguration vmConfig = new VMRunnerConfiguration(RemoteTestNG.class.getName(), //$NON-NLS-1$
+    VMRunnerConfiguration vmConfig =
+        new VMRunnerConfiguration(getRemoteClassName(), //$NON-NLS-1$
         classPath);
 
     // insert the program arguments
@@ -186,7 +211,9 @@ public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigu
     List<String> suiteList = new ArrayList<String>();
     List<String> tempSuites = new ArrayList<String>();
 
-    File suiteDir = TestNGPlugin.getPluginPreferenceStore().getTemporaryDirectory();
+    // Regular mode: generate a new random suite path
+    File suiteDir = TestNGPlugin.isDebug() ? new File(RemoteTestNG.DEBUG_SUITE_DIRECTORY)
+        : TestNGPlugin.getPluginPreferenceStore().getTemporaryDirectory();
     for (LaunchSuite launchSuite : launchSuiteList) {
       File suiteFile = launchSuite.save(suiteDir);
 
@@ -214,13 +241,13 @@ public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigu
     return vmConfig;
   }
 
-  private String[] createClassPath(ILaunchConfiguration configuration, String javaVersion)
+  private String[] createClassPath(ILaunchConfiguration configuration)
       throws CoreException {
     URL url = Platform.getBundle(TestNGPlugin.PLUGIN_ID).getEntry("/"); //$NON-NLS-1$
 
     String[] cp = getClasspath(configuration);
     String[] classPath = null;
-    String testngJarLocation = getTestNGLibraryVersion(javaVersion);
+    String testngJarLocation = getTestNGLibraryVersion();
     String testngJarName = testngJarLocation.indexOf('/') != -1 ? testngJarLocation
         .substring(testngJarLocation.indexOf('/') + 1) : testngJarLocation;
     boolean donotappendjar = false;
@@ -301,7 +328,7 @@ public class TestNGLaunchConfigurationDelegate extends AbstractJavaLaunchConfigu
     }
   }
 
-  private String getTestNGLibraryVersion(final String javaVersion) {
+  private String getTestNGLibraryVersion() {
     String testngLib = null;
     testngLib = ResourceUtil.getString("TestNG.jdk15.library"); //$NON-NLS-1$
 

@@ -1,21 +1,4 @@
-/*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Common Public License v1.0
- * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- *
- * Contributors:
- *     IBM Corporation - initial API and implementation
- *     Julien Ruaux: jruaux@octo.com see bug 25324 Ability to know when tests are finished [junit]
- *     Vincent Massol: vmassol@octo.com 25324 Ability to know when tests are finished [junit]
- *     Sebastian Davids: sdavids@gmx.de 35762 JUnit View wasting a lot of screen space [JUnit]
- *     
- * Modified by:
- *     Alexandru Popescu: the_mindstorm@evolva.ro
- ******************************************************************************/
 package org.testng.eclipse.ui;
-
 
 import org.eclipse.core.internal.resources.Workspace;
 import org.eclipse.core.resources.IFile;
@@ -53,6 +36,8 @@ import org.eclipse.swt.custom.SashForm;
 import org.eclipse.swt.custom.ViewForm;
 import org.eclipse.swt.events.ControlEvent;
 import org.eclipse.swt.events.ControlListener;
+import org.eclipse.swt.events.KeyEvent;
+import org.eclipse.swt.events.KeyListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Color;
@@ -64,7 +49,9 @@ import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Layout;
+import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.ui.IActionBars;
 import org.eclipse.ui.IEditorActionBarContributor;
@@ -87,6 +74,7 @@ import org.eclipse.ui.progress.IWorkbenchSiteProgressService;
 import org.eclipse.ui.progress.UIJob;
 import org.testng.ITestResult;
 import org.testng.eclipse.TestNGPlugin;
+import org.testng.eclipse.util.CustomSuite;
 import org.testng.eclipse.util.JDTUtil;
 import org.testng.eclipse.util.LaunchUtil;
 import org.testng.eclipse.util.PreferenceStoreUtil;
@@ -107,6 +95,8 @@ import java.util.Vector;
 
 /**
  * A ViewPart that shows the results of a test run.
+ *
+ * @author Cedric Beust <cedric@beust.com>
  */
 public class TestRunnerViewPart extends ViewPart 
 implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
@@ -248,8 +238,10 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
   // Stores any test descriptions of failed tests. For any test class 
   // that implements ITest, this will be the returned value of getTestName().
   private Set testDescriptions;
+  private Text m_searchText;
   
 
+  @Override
   public void init(IViewSite site, IMemento memento) throws PartInitException {
     super.init(site, memento);
     m_stateMemento = memento;
@@ -268,7 +260,6 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
     return null;
   }
-
 
   private void restoreLayoutState(IMemento memento) {
     Integer page = memento.getInteger(TAG_PAGE);
@@ -531,11 +522,11 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
   private void testTabChanged(SelectionEvent event) {
     String selectedTestId = m_activeRunTab.getSelectedTestId();
 
-    for (TestRunTab v : m_tabsList) {
-      v.setSelectedTest(selectedTestId);
+    for (TestRunTab tab : m_tabsList) {
+      tab.setSelectedTest(selectedTestId);
       
-      if(((CTabFolder) event.widget).getSelection().getText() == v.getName()) {
-        m_activeRunTab = v;
+      if(((CTabFolder) event.widget).getSelection().getText() == tab.getName()) {
+        m_activeRunTab = tab;
         m_activeRunTab.activate();
       }
     }
@@ -547,6 +538,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     ViewForm top = new ViewForm(m_sashForm, SWT.NONE);
     m_tabFolder = createTestRunTabs(top);
     m_tabFolder.setLayoutData(new Layout() {
+        @Override
         protected Point computeSize (Composite composite, int wHint, int hHint, boolean flushCache) {
             if (wHint != SWT.DEFAULT && hHint != SWT.DEFAULT)
                 return new Point(wHint, hHint);
@@ -621,8 +613,8 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
         fProgressBar.reset(testCount);
         clearStatus();
         
-        for (TestRunTab v : m_tabsList) {
-          v.aboutToStart();
+        for (TestRunTab tab : m_tabsList) {
+          tab.aboutToStart();
         }
       }
     });
@@ -647,9 +639,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
     configureToolBar();
 
-    m_counterComposite = createProgressCountPanel(parent);
-    m_counterComposite.setLayoutData(new GridData(GridData.GRAB_HORIZONTAL
-                                                 | GridData.HORIZONTAL_ALIGN_FILL));
+    createProgressCountPanel(parent);
 
     SashForm sashForm = createSashForm(parent);
     sashForm.setLayoutData(new GridData(GridData.FILL_BOTH));
@@ -783,33 +773,51 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     return getViewSite().getActionBars().getStatusLineManager();
   }
 
-  protected Composite createProgressCountPanel(Composite parent) {
+  protected void createProgressCountPanel(Composite parent) {
     Display display= parent.getDisplay();
     fFailureColor= new Color(display, 159, 63, 63);
     fOKColor= new Color(display, 95, 191, 95);
-    
-    Composite  composite = new Composite(parent, SWT.NONE);
-    GridLayout layout = new GridLayout();
-//    layout.numColumns = 1;
-    composite.setLayout(layout);
-    setCounterColumns(layout);
 
-    fProgressBar = new JUnitProgressBar(composite);
-    fProgressBar.setLayoutData(new GridData(GridData.GRAB_HORIZONTAL
-                                            | GridData.HORIZONTAL_ALIGN_FILL));
+    {
+      m_counterComposite = new Composite(parent, SWT.NONE);
+      m_counterComposite.setLayoutData(
+          new GridData(GridData.GRAB_HORIZONTAL | GridData.HORIZONTAL_ALIGN_FILL));
+      GridLayout layout = new GridLayout();
+      m_counterComposite.setLayout(layout);
+      setCounterColumns(layout);
 
-//    m_progressBar= new ProgressBar(composite, SWT.SMOOTH);
-//    m_progressBar.setLayoutData(new GridData(GridData.GRAB_HORIZONTAL
-//        | GridData.HORIZONTAL_ALIGN_FILL));
-//    m_progressBar.addPaintListener(new ProgressBarTextPainter(this));
-//    m_progressBar.setForeground(fOKColor);
+      fProgressBar = new JUnitProgressBar(m_counterComposite);
+      fProgressBar.setLayoutData(
+          new GridData(GridData.GRAB_HORIZONTAL| GridData.HORIZONTAL_ALIGN_FILL));
+    }
 
-    m_counterPanel = new CounterPanel(composite);
-    m_counterPanel.setLayoutData(new GridData(GridData.GRAB_HORIZONTAL
-                                             | GridData.HORIZONTAL_ALIGN_FILL));
+    {
+      Composite line2 = new Composite(parent, SWT.NONE);
+      line2.setLayoutData(
+          new GridData(GridData.GRAB_HORIZONTAL | GridData.HORIZONTAL_ALIGN_FILL));
+      GridLayout layout = new GridLayout();
+      layout.numColumns = 3;
+      line2.setLayout(layout);
+      new Label(line2, SWT.NONE).setText("Search:");
+      m_searchText = new Text(line2, SWT.SINGLE | SWT.BORDER);
+      m_searchText.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, true));
+      m_searchText.addKeyListener(new KeyListener() {
 
+        public void keyPressed(KeyEvent e) {
+        }
 
-    return composite;
+        public void keyReleased(KeyEvent e) {
+          for (TestRunTab tab : m_tabsList) {
+            tab.updateSearchFilter(m_searchText.getText());
+          }
+        }
+
+      });
+
+      m_counterPanel = new CounterPanel(line2);
+//      m_counterPanel.setLayoutData(new GridData(GridData.GRAB_HORIZONTAL
+//                                               | GridData.HORIZONTAL_ALIGN_FILL));
+    }
   }
 
   /*private static class ProgressBarTextPainter implements PaintListener {
@@ -937,31 +945,11 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       return fActionOrientation;
     }
 
+    @Override
     public void run() {
       if(isChecked()) {
         fOrientation = fActionOrientation;
         computeOrientation();
-      }
-    }
-  }
-
-  private class TreeEntryQueueDrainer implements Runnable {
-    public void run() {
-      while(true) {
-
-        RunInfo treeEntry;
-        synchronized(m_treeEntriesQueue) {
-          if(m_treeEntriesQueue.isEmpty() || isDisposed()) {
-            fQueueDrainRequestOutstanding = false;
-
-            return;
-          }
-          treeEntry = (RunInfo) m_treeEntriesQueue.remove(0);
-        }
-
-        for (TestRunTab v : m_tabsList) {
-          v.newTreeEntry(treeEntry);
-        }
       }
     }
   }
@@ -977,6 +965,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       setSystem(true);
     }
 
+    @Override
     public IStatus runInUIThread(IProgressMonitor monitor) {
       if(!isDisposed()) {
 //        doShowStatus();
@@ -992,6 +981,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       fRunning = false;
     }
 
+    @Override
     public boolean shouldSchedule() {
       return fRunning;
     }
@@ -1003,6 +993,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       setSystem(true);
     }
 
+    @Override
     public IStatus run(IProgressMonitor monitor) {
       // wait until the test run terminates
       m_runLock.acquire();
@@ -1010,6 +1001,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       return Status.OK_STATUS;
     }
 
+    @Override
     public boolean belongsTo(Object family) {
       return family == TestRunnerViewPart.FAMILY_RUN;
     }
@@ -1023,6 +1015,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
   /**
    * @see IWorkbenchPart#getTitleImage()
    */
+  @Override
   public Image getTitleImage() {
     return m_viewIcon;
   }
@@ -1033,18 +1026,6 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
   public void propertyChange(PropertyChangeEvent event) {
   }
 
-  private void postNewTreeEntry(RunInfo runInfo) {
-    synchronized(m_treeEntriesQueue) {
-      m_treeEntriesQueue.add(runInfo);
-      if(!fQueueDrainRequestOutstanding) {
-        fQueueDrainRequestOutstanding = true;
-        if(!isDisposed()) {
-          getDisplay().asyncExec(new TreeEntryQueueDrainer());
-        }
-      }
-    }
-  }
-  
   private void postTestResult(final RunInfo runInfo, final int progressStep) {
     postSyncRunnable(new Runnable() {
       public void run() {
@@ -1058,34 +1039,13 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
         fProgressBar.step(progressStep);
 //        updateProgressBar(m_progressBar.getSelection() + 1, (progressStep == 0));
 
-        for (TestRunTab v : m_tabsList) {
-          v.updateTestResult(runInfo);
+        for (TestRunTab tab : m_tabsList) {
+          tab.updateTestResult(runInfo);
         }
       }
     });
   }
-  
-  private void postTestStarted(final RunInfo runInfo) {
-    postSyncRunnable(new Runnable() {
-      public void run() {
-        if(isDisposed()) {
-          return;
-        }
-        for (TestRunTab v : m_tabsList) {
-          v.newTreeEntry(runInfo);
-        }
-      }
-    });
-  }
-  
-  /*private void updateProgressBar(int value, boolean success) {
-    if(!success || hasErrors()) {
-      m_progressBar.setForeground(fFailureColor);
-      m_progressBar.setBackground(fFailureColor);
-    }
-    m_progressBar.setSelection(value);
-  }*/
-  
+
   ///~ [CURRENT WORK] ~///
   private IPartListener2 fPartListener = new IPartListener2() {
     public void partActivated(IWorkbenchPartReference ref) {
@@ -1128,6 +1088,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       setImageDescriptor(TestNGPlugin.getImageDescriptor("elcl16/relaunch.gif")); //$NON-NLS-1$
     }
       
+    @Override
     public void run() {
       if(null != m_LastLaunch) {
         DebugUITools.launch(m_LastLaunch.getLaunchConfiguration(), m_LastLaunch.getLaunchMode());
@@ -1213,6 +1174,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       setImageDescriptor(TestNGPlugin.getImageDescriptor("elcl16/relaunchf.gif")); //$NON-NLS-1$
     }
     
+    @Override
     public void run() {
       if(null != m_LastLaunch && hasErrors()) {
         LaunchUtil.launchFailedSuiteConfiguration(m_workingProject, 
@@ -1240,28 +1202,27 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     m_startTime= System.currentTimeMillis();
   }
 
-  public void onStart(SuiteMessage suiteMessage) {
-    RunInfo ri= new RunInfo(suiteMessage.getSuiteName());
-    ri.m_methodCount= suiteMessage.getTestMethodCount();
-
-    postNewTreeEntry(ri);
-  }
+//  public void onStart(SuiteMessage suiteMessage) {
+//    RunInfo ri= new RunInfo(suiteMessage.getSuiteName());
+//    ri.m_methodCount= suiteMessage.getTestMethodCount();
+//
+//    postNewTreeEntry(ri);
+//  }
 
   public void onFinish(SuiteMessage suiteMessage) {
     m_suiteCount++;
-    final String entryId = new RunInfo(suiteMessage.getSuiteName()).getId();
     
-    postSyncRunnable(new Runnable() {
-      public void run() {
-        if(isDisposed()) {
-          return;
-        }
-        for(int i = 0; i < m_tabsList.size(); i++) {
-          ((TestRunTab) m_tabsList.elementAt(i)).updateEntry(entryId);
-        }
-      }
-    });
-    
+//    postSyncRunnable(new Runnable() {
+//      public void run() {
+//        if(isDisposed()) {
+//          return;
+//        }
+//        for(int i = 0; i < m_tabsList.size(); i++) {
+//          ((TestRunTab) m_tabsList.elementAt(i)).updateEntry(entryId);
+//        }
+//      }
+//    });
+
     if(m_suitesTotalCount == m_suiteCount) {
       fNextAction.setEnabled(hasErrors());
       fPrevAction.setEnabled(hasErrors());
@@ -1288,7 +1249,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     ri.m_methodCount= tm.getTestMethodCount();
     m_methodTotalCount += tm.getTestMethodCount();
     
-    postNewTreeEntry(ri);
+//    postNewTreeEntry(ri);
     
     postSyncRunnable(new Runnable() {
       public void run() {
@@ -1330,9 +1291,9 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
         if(isDisposed()) {
           return;
         }
-        for(int i = 0; i < m_tabsList.size(); i++) {
-          ((TestRunTab) m_tabsList.elementAt(i)).updateEntry(entryId);
-        }
+//        for(int i = 0; i < m_tabsList.size(); i++) {
+//          ((TestRunTab) m_tabsList.elementAt(i)).updateEntry(entryId);
+//        }
         
         fProgressBar.stepTests();
       }
@@ -1340,8 +1301,12 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
   }
 
   private RunInfo createRunInfo(TestResultMessage trm, String stackTrace, int type) {
+    String testName = trm.getName();
+    if (testName == null) {
+      testName = CustomSuite.DEFAULT_TEST_TAG_NAME;
+    }
     return new RunInfo(trm.getSuiteName(),
-                       trm.getName(),
+                       testName,
                        trm.getTestClass(),
                        trm.getMethod(),
                        trm.getTestDescription(),
@@ -1388,21 +1353,12 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     );
   }
 
-  /**
-   * FIXME: currently not used; it should be use to mark the currently running
-   * tests.
-   */
-  public void onTestStart(TestResultMessage trm) {
-//    System.out.println("[INFO:onTestStart]:" + trm.getMessageAsString());
-    postTestStarted(createRunInfo(trm, null, ITestResult.SUCCESS));
-  }
-  
   public Set getTestDescriptions() {
-	if (testDescriptions == null) {
-		testDescriptions = new HashSet();
-	}
-	return testDescriptions;
-}
+  	if (testDescriptions == null) {
+  		testDescriptions = new HashSet();
+  	}
+  	return testDescriptions;
+  }
   
     /**
 	 * If any test descriptions of failed tests have been saved, pass them along
@@ -1440,4 +1396,17 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 					m_LastLaunch.getLaunchMode());
 		}
 	}
+
+	/**
+   * FIXME: currently not used; it should be use to mark the currently running
+   * tests.
+   */
+  public void onTestStart(TestResultMessage trm) {
+////    System.out.println("[INFO:onTestStart]:" + trm.getMessageAsString());
+//    postTestStarted(createRunInfo(trm, null, ITestResult.SUCCESS));
+  }
+
+  public void onStart(SuiteMessage suiteMessage) {
+  }
+
 }

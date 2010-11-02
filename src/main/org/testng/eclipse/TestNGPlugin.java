@@ -28,6 +28,12 @@ import org.testng.eclipse.ui.util.ConfigurationHelper;
 import org.testng.eclipse.util.JDTUtil;
 import org.testng.eclipse.util.PreferenceStoreUtil;
 import org.testng.eclipse.util.SWTUtil;
+import org.testng.remote.RemoteTestNG;
+
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.AbstractSet;
+import java.util.HashSet;
 
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -186,7 +192,7 @@ public class TestNGPlugin extends AbstractUIPlugin implements ILaunchListener {
       return;
     }
 
-    final int   finalPort = port;
+    final int   finalPort = isDebug() ? Integer.parseInt(RemoteTestNG.DEBUG_PORT) : port;
     final IJavaProject ijp = JDTUtil.getJavaProject(projectName);
     final String name = subName;
     
@@ -320,7 +326,7 @@ public class TestNGPlugin extends AbstractUIPlugin implements ILaunchListener {
     return null;
   }
   
-  private boolean isEmtpy(String string) {
+  public static boolean isEmtpy(String string) {
     return null == string || "".equals(string.trim());
   } 
   
@@ -334,5 +340,13 @@ public class TestNGPlugin extends AbstractUIPlugin implements ILaunchListener {
    */
   public static String getFailedTestsKey() {
 	  return TestNGPluginConstants.S_FAILED_TESTS;
+  }
+
+  public static boolean isVerbose() {
+    return RemoteTestNG.isVerbose();
+  }
+
+  public static boolean isDebug() {
+    return RemoteTestNG.isDebug();
   }
 }

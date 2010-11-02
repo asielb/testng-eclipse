@@ -4,12 +4,12 @@ package org.testng.eclipse.util;
 import javax.xml.parsers.ParserConfigurationException;
 
 import org.eclipse.jface.preference.IPreferenceStore;
-import org.testng.TestNG;
 import org.testng.eclipse.TestNGPlugin;
 import org.testng.eclipse.TestNGPluginConstants;
 import org.testng.eclipse.collections.Lists;
 import org.testng.eclipse.collections.Maps;
 import org.testng.internal.Utils;
+import org.testng.remote.RemoteTestNG;
 import org.testng.reporters.XMLStringBuffer;
 import org.testng.xml.LaunchSuite;
 import org.testng.xml.Parser;
@@ -36,9 +36,20 @@ import java.util.Properties;
  * @author cbeust
  */
 abstract public class CustomSuite extends LaunchSuite {
+  /**
+   * The name of the <suite> tag used when the user is launching something else than
+   * an XML file.
+   */
+  public static final String DEFAULT_SUITE_TAG_NAME = "Default suite";
+  
+  /**
+   * The name of the <test> tag used when the user is launching something else than
+   * an XML file.
+   */
+  public static final String DEFAULT_TEST_TAG_NAME = "Default test";
+
   protected String m_projectName;
   protected String m_suiteName;
-  protected String m_annotationType;
   protected Map<String, String> m_parameters;
   protected int m_logLevel;
 
@@ -54,17 +65,15 @@ abstract public class CustomSuite extends LaunchSuite {
   public CustomSuite(final String projectName,
                      final String suiteName,
                      final Map<String, String> parameters,
-                     final String annotationType,
                      final int logLevel) {
     super(true);
-    init(Collections.<String>emptyList(), projectName, suiteName, parameters, annotationType,
+    init(Collections.<String>emptyList(), projectName, suiteName, parameters,
         logLevel);
   }
 
   private void init(List<String> suiteFiles, String projectName,
       final String suiteName,
       final Map<String, String> parameters,
-      final String annotationType,
       final int logLevel) {
 
 //    m_suiteFiles = suiteFiles;
@@ -72,14 +81,6 @@ abstract public class CustomSuite extends LaunchSuite {
     m_suiteName= suiteName;
     m_parameters= parameters;
 
-    // TODO: move to AnnotationTypeEnum ?
-    if("1.4".equals(annotationType) || TestNG.JAVADOC_ANNOTATION_TYPE.equals(annotationType)) {
-      m_annotationType= TestNG.JAVADOC_ANNOTATION_TYPE;
-    }
-    else {
-      m_annotationType= TestNG.JDK_ANNOTATION_TYPE;
-    }
-    
     m_logLevel= logLevel;
     
   }
@@ -158,7 +159,7 @@ abstract public class CustomSuite extends LaunchSuite {
         put(attr, "verbose", s.getVerbose());
         put(attr, "parallel", s.getParallel());
         put(attr, "thread-count", s.getThreadCount());
-        put(attr, "annotations", s.getAnnotations());
+//        put(attr, "annotations", s.getAnnotations());
         put(attr, "time-out", s.getTimeOut());
         put(attr, "skipfailedinvocationcounts", s.skipFailedInvocationCounts());
         put(attr, "configfailurepolicy", s.getConfigFailurePolicy());
@@ -225,7 +226,7 @@ abstract public class CustomSuite extends LaunchSuite {
   }
 
   public String getFileName() {
-    return "testng-customsuite.xml";
+    return RemoteTestNG.DEBUG_SUITE_FILE;
   }
 
   /** 
@@ -274,9 +275,9 @@ abstract public class CustomSuite extends LaunchSuite {
   protected void initContentBuffer(XMLStringBuffer suiteBuffer) {
     Properties testAttrs= new Properties();
     testAttrs.setProperty("name", getTestName());
-    if(m_annotationType != null) {
-      testAttrs.setProperty("annotations", m_annotationType);
-    }
+//    if(m_annotationType != null) {
+//      testAttrs.setProperty("annotations", m_annotationType);
+//    }
     testAttrs.setProperty("verbose", String.valueOf(m_logLevel));
 
     suiteBuffer.push("test", testAttrs);
@@ -379,9 +380,8 @@ class ClassMethodsSuite extends CustomSuite {
                            final List<String> classNames,
                            final Map<String, List<String>> classMethods,
                            final Map<String, String> parameters,
-                           final String annotationType,
                            final int logLevel) {
-    super(projectName, projectName, parameters, annotationType, logLevel);
+    super(projectName, DEFAULT_SUITE_TAG_NAME, parameters, logLevel);
     m_classNames = classNames;
     m_classMethods = classMethods != null ? sanitize(classMethods): classMethods;
     if(m_useMethods) {
@@ -419,7 +419,9 @@ class ClassMethodsSuite extends CustomSuite {
 
   @Override
   protected String getTestName() {
-    return m_classNames.size() == 1 ? (String) m_classNames.iterator().next() : "classes";
+    return DEFAULT_TEST_TAG_NAME;
+//    return m_classNames.size() == 1 ? (String) m_classNames.iterator().next()
+//        : DEFAULT_TEST_TAG_NAME;
   }
 
   @Override
@@ -473,9 +475,8 @@ class GroupListSuite extends CustomSuite {
                         final List<String> classNames,
                         final List<String> groupNames,
                         final Map<String, String> parameters,
-                        final String annotationType,
                         final int logLevel) {
-    super(projectName, projectName + " by groups", parameters, annotationType, logLevel);
+    super(projectName, projectName + " by groups", parameters, logLevel);
 
     m_packageNames= packageNames;
     m_classNames= classNames;
@@ -519,9 +520,8 @@ class PackageSuite extends CustomSuite {
   public PackageSuite(final String projectName,
                       final List<String> packageNames,
                       final Map<String, String> parameters,
-                      final String annotationType,
                       final int logLevel) {
-    super(projectName, projectName + " by packages", parameters, annotationType, logLevel);
+    super(projectName, projectName + " by packages", parameters, logLevel);
     m_packageNames= packageNames;
   }
 

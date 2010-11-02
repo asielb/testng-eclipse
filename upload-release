@@ -1,0 +1,41 @@
+UPDATE_SITE=$HOME/java/testng-eclipse-update-site/
+
+
+if [ $# -gt 0 ]
+then
+  number=$1
+  jar=$UPDATE_SITE/plugins/org.testng.eclipse_$number.jar
+  shift
+else
+  echo "Specify the plug-in jar file"
+fi
+
+
+#number=`echo $jar | awk 'BEGIN { regex="[0-9]+.[0-9]+.[0-9]+.[0-9]"; } { if (match($0, regex)) printf("%s", substr($0, RSTART, RLENGTH))}'`
+
+ver=/tmp/eclipse-verify
+rm -rf $ver
+mkdir $ver
+cd $ver
+jar xf $jar
+jar xf eclipse-testng.jar
+
+for i in `find . -name \*class`
+do
+  v=`od -h $i | head -1 | awk '{print $5}'`
+  if [ $v != "3100" ]
+  then
+    echo "Class $i has version $v, expected 3100"
+    break
+  fi
+done
+
+file org/testng/eclipse/TestNGPlugin.class
+
+cd $UPDATE_SITE
+target=w/eclipse-old
+ssh beust.com@beust.com mkdir ${target}/eclipse-$number
+scp -r * beust.com@beust.com:${target}/eclipse-$number
+ssh beust.com@beust.com "(rm w/eclipse && ln -s ${target}/eclipse-$number w/eclipse)"
+
+
