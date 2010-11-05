@@ -5,20 +5,13 @@ package org.testng.eclipse.ui;
  */
 public class SuccessTab extends AbstractTab  {
    
-  protected String getTooltipKey() {
+  @Override
+  public String getTooltipKey() {
 	  return "HierarchyRunView.tab.tooltip";
   }
- 
-  /**
-   * @see net.noco.testng.ui.TestRunTab#getName()
-   */
-  public String getName() {
-    return getResourceString("HierarchyRunView.tab.title"); //$NON-NLS-1$
-  }
 
-  protected String getSelectedTestKey(){
-	  return "[TestHierarchyTab.setSelectedTest]";
+  @Override
+  public String getNameKey() {
+    return "HierarchyRunView.tab.title"; //$NON-NLS-1$
   }
- 
-  
 }

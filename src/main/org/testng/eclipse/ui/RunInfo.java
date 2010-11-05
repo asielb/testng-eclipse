@@ -224,7 +224,7 @@ public class RunInfo {
    * @return
    */
   public String getParametersDisplay() {
-    if(null == m_parameters || m_parameters.length == 0) return "()";
+    if(null == m_parameters || m_parameters.length == 0) return "";
 
     return toString(m_parameters, m_parameterTypes);
   }
@@ -296,7 +296,19 @@ public class RunInfo {
         + "] (" + ((float) getTime() / (float) 1000) + " s) "
         ;
   }
-  
+
+  public String getTestId() {
+    return m_suiteName + "." + m_testName;
+  }
+
+  public String getMethodId() {
+    return getTestId() + "." + getMethodDisplay();
+  }
+
+  public String getClassId() {
+    return getTestId() + "." + m_className;
+  }
+
   /*public static void main(String[] args) {
     String test1= "something\nwrong";
     String test2= "something\rwrong";

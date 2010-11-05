@@ -1,9 +1,17 @@
 package org.testng.eclipse.wizards;
 
 import org.eclipse.core.resources.IContainer;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.IClasspathEntry;
+import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.IPackageFragment;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jface.dialogs.IDialogPage;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
@@ -13,18 +21,14 @@ import org.eclipse.swt.events.ModifyEvent;
 import org.eclipse.swt.events.ModifyListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
-import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.dialogs.ContainerSelectionDialog;
-import org.testng.eclipse.ui.util.Utils;
-import org.testng.eclipse.ui.util.Utils.Widgets;
 import org.testng.eclipse.util.ResourceUtil;
 
 import java.util.HashMap;
@@ -214,9 +218,45 @@ public class NewTestNGClassWizardPage extends WizardPage {
           container = ((IResource) obj).getParent();
         }
         m_sourceFolderText.setText(container.getFullPath().toString());
+      } else if (obj instanceof ICompilationUnit) {
+        // A Java class, go up the resource tree until we find its package
+        ICompilationUnit cu = (ICompilationUnit) obj;
+        IJavaElement parent = cu.getParent();
+        while (! (parent instanceof IPackageFragment)) {
+          parent = parent.getParent();
+        }
+        if (parent != null) {
+          initialize((IPackageFragment) parent);
+        }
+      } else if (obj instanceof IPackageFragment) {
+        initialize((IPackageFragment) obj);
       }
     }
     m_classNameText.setText("NewTest");
+  }
+
+  /**
+   * Initialize the wizard with an IPackageFragment.
+   */
+  private void initialize(IPackageFragment pf) {
+    m_packageNameText.setText(pf.getElementName());
+    IResource resource = (IResource) pf.getAdapter(IResource.class);
+    IProject p = (IProject) resource.getProject();
+    IJavaProject jp = JavaCore.create(p);
+    try {
+      for (IClasspathEntry entry : jp.getRawClasspath()) {
+        if (entry.getEntryKind() == IClasspathEntry.CPE_SOURCE) {
+          String source = entry.getPath().toOSString();
+          if (resource.getFullPath().toString().startsWith(source)) {
+            m_sourceFolderText.setText(source);
+            break;
+          }
+        }
+      }
+    }
+    catch(JavaModelException ex) {
+      ex.printStackTrace();
+    }
   }
 
   private void handleBrowsePackages() {

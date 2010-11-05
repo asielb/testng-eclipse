@@ -30,12 +30,8 @@ import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.util.IPropertyChangeListener;
 import org.eclipse.jface.util.PropertyChangeEvent;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.custom.CLabel;
 import org.eclipse.swt.custom.CTabFolder;
-import org.eclipse.swt.custom.SashForm;
-import org.eclipse.swt.custom.ViewForm;
-import org.eclipse.swt.events.ControlEvent;
-import org.eclipse.swt.events.ControlListener;
+import org.eclipse.swt.custom.CTabItem;
 import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.KeyListener;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -43,16 +39,12 @@ import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.graphics.Point;
-import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
-import org.eclipse.swt.widgets.Layout;
 import org.eclipse.swt.widgets.Text;
-import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.ui.IActionBars;
 import org.eclipse.ui.IEditorActionBarContributor;
 import org.eclipse.ui.IEditorPart;
@@ -101,11 +93,6 @@ import java.util.Vector;
 public class TestRunnerViewPart extends ViewPart 
 implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
-  //orientations
-  static final int VIEW_ORIENTATION_VERTICAL = 0;
-  static final int VIEW_ORIENTATION_HORIZONTAL = 1;
-  static final int VIEW_ORIENTATION_AUTOMATIC = 2;
-
   /** used by IWorkbenchSiteProgressService */
   private static final Object FAMILY_RUN = new Object();
 
@@ -137,15 +124,28 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
   /** The currently active run tab. */
   private TestRunTab m_activeRunTab;
 
-  private FailureTrace m_failureTraceComponent;
-  
-  private SashForm   m_sashForm;
+  // Orientations
+  static final int VIEW_ORIENTATION_VERTICAL = 0;
+  static final int VIEW_ORIENTATION_HORIZONTAL = 1;
+  static final int VIEW_ORIENTATION_AUTOMATIC = 2;
+
+  /**
+   * The current orientation; either <code>VIEW_ORIENTATION_HORIZONTAL</code>
+   * <code>VIEW_ORIENTATION_VERTICAL</code>, or <code>VIEW_ORIENTATION_AUTOMATIC</code>.
+   */
+  private int fOrientation = VIEW_ORIENTATION_AUTOMATIC;
+
+  /**
+   * The current orientation; either <code>VIEW_ORIENTATION_HORIZONTAL</code>
+   * <code>VIEW_ORIENTATION_VERTICAL</code>.
+   */
+  private int fCurrentOrientation;
 
   protected CounterPanel     m_counterPanel;
   private Composite   m_counterComposite;
   
   final Image m_viewIcon = TestNGPlugin.getImageDescriptor("main16/testng_noshadow.gif").createImage();//$NON-NLS-1$
-  final Image fStackViewIcon = TestNGPlugin.getImageDescriptor("eview16/stackframe.gif").createImage(); //$NON-NLS-1$
+//  final Image fStackViewIcon = TestNGPlugin.getImageDescriptor("eview16/stackframe.gif").createImage(); //$NON-NLS-1$
 
   /**
    * Actions
@@ -165,18 +165,6 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
    * Whether the output scrolls and reveals tests as they are executed.
    */
   protected boolean fAutoScroll = true;
-
-  /**
-   * The current orientation; either <code>VIEW_ORIENTATION_HORIZONTAL</code>
-   * <code>VIEW_ORIENTATION_VERTICAL</code>, or <code>VIEW_ORIENTATION_AUTOMATIC</code>.
-   */
-  private int fOrientation = VIEW_ORIENTATION_AUTOMATIC;
-
-  /**
-   * The current orientation; either <code>VIEW_ORIENTATION_HORIZONTAL</code>
-   * <code>VIEW_ORIENTATION_VERTICAL</code>.
-   */
-  private int fCurrentOrientation;
 
   protected JUnitProgressBar fProgressBar;
 
@@ -214,10 +202,8 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
   // Persistence tags.
   static final String TAG_PAGE = "page"; //$NON-NLS-1$
-  static final String TAG_RATIO = "ratio"; //$NON-NLS-1$
   static final String TAG_ORIENTATION = "orientation"; //$NON-NLS-1$
 
-  
   //~ counters
   protected int m_suitesTotalCount;
   protected int m_testsTotalCount;
@@ -243,6 +229,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
   @Override
   public void init(IViewSite site, IMemento memento) throws PartInitException {
+    ppp("Init, memento:" + memento);
     super.init(site, memento);
     m_stateMemento = memento;
 
@@ -269,16 +256,59 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       m_activeRunTab = m_tabsList.get(p);
     }
 
-    Integer ratio = memento.getInteger(TAG_RATIO);
-    if(ratio != null) {
-      m_sashForm.setWeights(new int[] { ratio.intValue(), 1000 - ratio.intValue() });
+    for (TestRunTab trt : m_tabsList) {
+      trt.restoreState(memento);
     }
 
     Integer orientation = memento.getInteger(TAG_ORIENTATION);
     if(orientation != null) {
       fOrientation = orientation.intValue();
     }
+
     computeOrientation();
+  }
+
+  void computeOrientation() {
+    if (fOrientation != VIEW_ORIENTATION_AUTOMATIC) {
+      fCurrentOrientation = fOrientation;
+      setOrientation(fCurrentOrientation);
+    }
+    else {
+      Point size = m_parentComposite.getSize();
+      if((size.x != 0) && (size.y != 0)) {
+        if(size.x > size.y) {
+          setOrientation(VIEW_ORIENTATION_HORIZONTAL);
+        }
+        else {
+          setOrientation(VIEW_ORIENTATION_VERTICAL);
+        }
+      }
+    }
+  }
+
+  private void setOrientation(int orientation) {
+
+    boolean horizontal = orientation == VIEW_ORIENTATION_HORIZONTAL;
+    for (TestRunTab trt : m_tabsList) {
+      trt.setOrientation(horizontal);
+    }
+
+    for(int i = 0; i < fToggleOrientationActions.length; ++i) {
+      fToggleOrientationActions[i].setChecked(
+          fOrientation == fToggleOrientationActions[i].getOrientation());
+    }
+    fCurrentOrientation = orientation;
+
+    GridLayout layout = (GridLayout) m_counterComposite.getLayout();
+//    layout.numColumns = 1;
+    setCounterColumns(layout);
+
+    try {
+      m_parentComposite.layout();
+    }
+    catch(Throwable cause) {
+      cause.printStackTrace();
+    }
   }
 
   /**
@@ -369,7 +399,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
     TestNGPlugin.getDefault().getPreferenceStore().removePropertyChangeListener(this);
     getViewSite().getPage().removePartListener(fPartListener);
-    fStackViewIcon.dispose();
+//    fStackViewIcon.dispose();
     m_viewIcon.dispose();
     fOKColor.dispose();
     fFailureColor.dispose();
@@ -474,7 +504,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
   protected CTabFolder createTestRunTabs(Composite parent) {
     CTabFolder tabFolder = new CTabFolder(parent, SWT.TOP);
-    tabFolder.setLayoutData(new GridData(GridData.FILL_BOTH | GridData.GRAB_VERTICAL));
+    tabFolder.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
     loadTestRunTabs(tabFolder);
     tabFolder.setSelection(0);
@@ -507,7 +537,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
       try {
 
         TestRunTab testRunTab = (TestRunTab) configs[i].createExecutableExtension("class"); //$NON-NLS-1$
-        testRunTab.createTabControl(tabFolder, this);
+        createTabControl(testRunTab, tabFolder, this);
         m_tabsList.addElement(testRunTab);
       }
       catch(CoreException e) {
@@ -519,73 +549,30 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     }
   }
 
+  private void createTabControl(TestRunTab testRunTab, CTabFolder tabFolder,
+      TestRunnerViewPart testRunnerViewPart) {
+    Composite composite = testRunTab.createTabControl(tabFolder, this);
+
+    CTabItem tab = new CTabItem(tabFolder, SWT.NONE);
+    tab.setText(ResourceUtil.getString(testRunTab.getNameKey()));
+    tab.setImage(testRunTab.getImage());
+    tab.setToolTipText(ResourceUtil.getString(testRunTab.getTooltipKey())); //$NON-NLS-1$
+
+    tab.setControl(composite);
+  }
+
   private void testTabChanged(SelectionEvent event) {
     String selectedTestId = m_activeRunTab.getSelectedTestId();
 
     for (TestRunTab tab : m_tabsList) {
       tab.setSelectedTest(selectedTestId);
-      
-      if(((CTabFolder) event.widget).getSelection().getText() == tab.getName()) {
+
+      String name = ResourceUtil.getString(tab.getNameKey());
+      if(((CTabFolder) event.widget).getSelection().getText() == name) {
         m_activeRunTab = tab;
         m_activeRunTab.activate();
       }
     }
-  }
-
-  private SashForm createSashForm(Composite parent) {
-    m_sashForm = new SashForm(parent, SWT.VERTICAL);
-
-    ViewForm top = new ViewForm(m_sashForm, SWT.NONE);
-    m_tabFolder = createTestRunTabs(top);
-    m_tabFolder.setLayoutData(new Layout() {
-        @Override
-        protected Point computeSize (Composite composite, int wHint, int hHint, boolean flushCache) {
-            if (wHint != SWT.DEFAULT && hHint != SWT.DEFAULT)
-                return new Point(wHint, hHint);
-                
-            Control [] children = composite.getChildren ();
-            int count = children.length;
-            int maxWidth = 0, maxHeight = 0;
-            for (int i=0; i<count; i++) {
-                Control child = children [i];
-                Point pt = child.computeSize (SWT.DEFAULT, SWT.DEFAULT, flushCache);
-                maxWidth = Math.max (maxWidth, pt.x);
-                maxHeight = Math.max (maxHeight, pt.y);
-            }
-            
-            if (wHint != SWT.DEFAULT)
-                maxWidth= wHint;
-            if (hHint != SWT.DEFAULT)
-                maxHeight= hHint;
-            
-            return new Point(maxWidth, maxHeight);
-        }
-        
-        @Override
-        protected void layout(Composite composite, boolean flushCache) {
-            Rectangle rect= composite.getClientArea();
-            Control[] children = composite.getChildren();
-            for (int i = 0; i < children.length; i++) {
-                children[i].setBounds(rect);
-            }
-        }
-    });
-    top.setContent(m_tabFolder);
-
-    ViewForm bottom = new ViewForm(m_sashForm, SWT.NONE);
-    CLabel   label = new CLabel(bottom, SWT.NONE);
-    label.setText(ResourceUtil.getString("TestRunnerViewPart.label.failure")); //$NON-NLS-1$
-    label.setImage(fStackViewIcon);
-    bottom.setTopLeft(label);
-
-    ToolBar failureToolBar = new ToolBar(bottom, SWT.FLAT | SWT.WRAP);
-    bottom.setTopCenter(failureToolBar);
-    m_failureTraceComponent = new FailureTrace(bottom, this, failureToolBar);
-    bottom.setContent(m_failureTraceComponent.getComposite());
-
-    m_sashForm.setWeights(new int[] { 50, 50 });
-
-    return m_sashForm;
   }
 
   private void reset(final int suiteCount, final int testCount) {
@@ -609,7 +596,7 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
         }
         
         m_counterPanel.reset();
-        m_failureTraceComponent.clear();
+//        m_failureTraceComponent.clear();
         fProgressBar.reset(testCount);
         clearStatus();
         
@@ -629,8 +616,9 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
   @Override
   public void createPartControl(Composite parent) {
+    ppp("createPartControl");
     m_parentComposite = parent;
-    addResizeListener(parent);
+//    addResizeListener(parent);
 
     GridLayout gridLayout = new GridLayout();
     gridLayout.marginWidth = 0;
@@ -641,66 +629,63 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
     createProgressCountPanel(parent);
 
-    SashForm sashForm = createSashForm(parent);
-    sashForm.setLayoutData(new GridData(GridData.FILL_BOTH));
+    m_tabFolder = createTestRunTabs(parent);
+
+//    m_tabFolder.setLayoutData(new Layout() {
+//      @Override
+//      protected Point computeSize (Composite composite, int wHint, int hHint, boolean flushCache) {
+//          if (wHint != SWT.DEFAULT && hHint != SWT.DEFAULT)
+//              return new Point(wHint, hHint);
+//              
+//          Control [] children = composite.getChildren ();
+//          int count = children.length;
+//          int maxWidth = 0, maxHeight = 0;
+//          for (int i=0; i<count; i++) {
+//              Control child = children [i];
+//              Point pt = child.computeSize (SWT.DEFAULT, SWT.DEFAULT, flushCache);
+//              maxWidth = Math.max (maxWidth, pt.x);
+//              maxHeight = Math.max (maxHeight, pt.y);
+//          }
+//          
+//          if (wHint != SWT.DEFAULT)
+//              maxWidth= wHint;
+//          if (hHint != SWT.DEFAULT)
+//              maxHeight= hHint;
+//          
+//          return new Point(maxWidth, maxHeight);
+//      }
+//      
+//      @Override
+//      protected void layout(Composite composite, boolean flushCache) {
+//          Rectangle rect= composite.getClientArea();
+//          Control[] children = composite.getChildren();
+//          for (int i = 0; i < children.length; i++) {
+//              children[i].setBounds(rect);
+//          }
+//      }
+//  });
+//    SashForm sashForm = createSashForm(parent);
+//    sashForm.setLayoutData(new GridData(GridData.FILL_BOTH));
 
     TestNGPlugin.getDefault().getPreferenceStore().addPropertyChangeListener(this);
 
     getViewSite().getPage().addPartListener(fPartListener);
 
-    if(m_stateMemento != null) {
+    if (m_stateMemento != null) {
       restoreLayoutState(m_stateMemento);
     }
     m_stateMemento = null;
   }
 
-  private void addResizeListener(Composite parent) {
-    parent.addControlListener(new ControlListener() {
-      public void controlMoved(ControlEvent e) {
-      }
-
-      public void controlResized(ControlEvent e) {
-        computeOrientation();
-      }
-    });
-  }
-
-  void computeOrientation() {
-    if(fOrientation != VIEW_ORIENTATION_AUTOMATIC) {
-      fCurrentOrientation = fOrientation;
-      setOrientation(fCurrentOrientation);
-    }
-    else {
-      Point size = m_parentComposite.getSize();
-      if((size.x != 0) && (size.y != 0)) {
-        if(size.x > size.y) {
-          setOrientation(VIEW_ORIENTATION_HORIZONTAL);
-        }
-        else {
-          setOrientation(VIEW_ORIENTATION_VERTICAL);
-        }
-      }
-    }
-  }
-
   @Override
   public void saveState(IMemento memento) {
-    if(m_sashForm == null) {
-      // part has not been created
-      if(m_stateMemento != null) { //Keep the old state;
-        memento.putMemento(m_stateMemento);
-      }
-
-      return;
-    }
-
     int activePage = m_tabFolder.getSelectionIndex();
     memento.putInteger(TAG_PAGE, activePage);
-
-    int[] weigths = m_sashForm.getWeights();
-    int   ratio = (weigths[0] * 1000) / (weigths[0] + weigths[1]);
-    memento.putInteger(TAG_RATIO, ratio);
     memento.putInteger(TAG_ORIENTATION, fOrientation);
+
+    for (TestRunTab tab : m_tabsList) {
+      tab.saveState(memento);
+    }
   }
 
   private void configureToolBar() {
@@ -844,15 +829,15 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     }
   }*/
   
-  public void handleTestSelected(final RunInfo testInfo) {
-    postSyncRunnable(new Runnable() {
-      public void run() {
-        if(!isDisposed()) {
-          m_failureTraceComponent.showFailure(testInfo);
-        }
-      }
-    });
-  }
+//  public void handleTestSelected(final RunInfo testInfo) {
+//    postSyncRunnable(new Runnable() {
+//      public void run() {
+//        if(!isDisposed()) {
+//          m_failureTraceComponent.showFailure(testInfo);
+//        }
+//      }
+//    });
+//  }
 
   public IJavaProject getLaunchedProject() {
     return m_workingProject;
@@ -884,31 +869,6 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
 
   public boolean lastLaunchIsKeptAlive() {
     return false;
-  }
-
-  private void setOrientation(int orientation) {
-    if((m_sashForm == null) || m_sashForm.isDisposed()) {
-      return;
-    }
-
-    boolean horizontal = orientation == VIEW_ORIENTATION_HORIZONTAL;
-    m_sashForm.setOrientation(horizontal ? SWT.HORIZONTAL : SWT.VERTICAL);
-    for(int i = 0; i < fToggleOrientationActions.length; ++i) {
-      fToggleOrientationActions[i].setChecked(fOrientation
-                                              == fToggleOrientationActions[i].getOrientation());
-    }
-    fCurrentOrientation = orientation;
-
-    GridLayout layout = (GridLayout) m_counterComposite.getLayout();
-//    layout.numColumns = 1;
-    setCounterColumns(layout);
-
-    try {
-      m_parentComposite.layout();
-    }
-    catch(Throwable cause) {
-      cause.printStackTrace();
-    }
   }
 
   private void setCounterColumns(GridLayout layout) {
@@ -1007,9 +967,10 @@ implements IPropertyChangeListener, IRemoteSuiteListener, IRemoteTestListener {
     }
   }
 
-
   private static void ppp(final Object message) {
-//    System.out.println("[TestRunnerViewPart]:- " + message);
+    if (false) {
+      System.out.println("[TestRunnerViewPart] " + message);
+    }
   }
 
   /**

@@ -19,8 +19,9 @@ import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.custom.CTabFolder;
-import org.eclipse.swt.custom.CTabItem;
+import org.eclipse.swt.custom.CLabel;
+import org.eclipse.swt.custom.SashForm;
+import org.eclipse.swt.custom.ViewForm;
 import org.eclipse.swt.events.DisposeEvent;
 import org.eclipse.swt.events.DisposeListener;
 import org.eclipse.swt.events.MouseAdapter;
@@ -32,8 +33,11 @@ import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Menu;
+import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.swt.widgets.Tree;
 import org.eclipse.swt.widgets.TreeItem;
+import org.eclipse.ui.IMemento;
+import org.testng.eclipse.TestNGPlugin;
 import org.testng.eclipse.collections.Maps;
 import org.testng.eclipse.collections.Sets;
 import org.testng.eclipse.ui.tree.BaseTreeItem;
@@ -58,59 +62,107 @@ import java.util.regex.Pattern;
  * @author Cedric Beust <cedric@beust.com>
  */
 abstract public class AbstractTab extends TestRunTab implements IMenuListener {
-  private final Image m_suiteIcon = Images.getImage(IMG_SUITE);
-  private final Image m_suiteOkeIcon = Images.getImage(IMG_SUITE_OK);
-  private final Image m_suiteSkipIcon = Images.getImage(IMG_SUITE_SKIP);
-  private final Image m_suiteFailIcon = Images.getImage(IMG_SUITE_FAIL);
-  private final Image m_suiteRunIcon = Images.getImage(IMG_SUITE_RUN);
+  private Image m_suiteIcon;
+  private Image m_suiteOkeIcon;
+  private Image m_suiteSkipIcon;
+  private Image m_suiteFailIcon;
+  private Image m_suiteRunIcon;
 
-  private final Image m_testHierarchyIcon = Images.getImage(IMG_TEST_HIERARCHY); 
-  private final Image m_testIcon = Images.getImage(IMG_TEST);
-  private final Image m_testOkeIcon = Images.getImage(IMG_TEST_OK);
-  private final Image m_testSkipIcon = Images.getImage(IMG_TEST_SKIP);
-  private final Image m_testFailIcon = Images.getImage(IMG_TEST_FAIL);
-  private final Image m_testRunIcon = Images.getImage(IMG_TEST_RUN);
+  private Image m_testHierarchyIcon; 
+  private Image m_testIcon;
+  private Image m_testOkeIcon;
+  private Image m_testSkipIcon;
+  private Image m_testFailIcon;
+  private Image m_testRunIcon;
+  private Image m_stackViewIcon;
+
+  // Persistence tags
+  static final String TAG_RATIO = "ratio"; //$NON-NLS-1$
+
+  /** Used to persist the state of the layout */
+  private IMemento m_stateMemento;
+
+  /** The component that displays the stack trace when an item is selected */
+  private FailureTrace m_failureTraceComponent;
 
   private Tree m_tree;
   private TestRunnerViewPart m_testRunnerPart;
+  private SashForm m_sashForm;
+  private Composite m_parentComposite;
 
   @Override
   public String getSelectedTestId() {
     TreeItem[] treeItems = m_tree.getSelection();
-
-    return treeItems == null ? null : BaseTreeItem.getTreeItem(treeItems[0]).getRunInfo().getId();
+    if (treeItems == null || treeItems.length == 0) {
+      return null;
+    } else {
+      return BaseTreeItem.getTreeItem(treeItems[0]).getRunInfo().getMethodId();
+    }
   }
 
   @Override
-  public void createTabControl(CTabFolder tabFolder, TestRunnerViewPart runner) {
+  public void setSelectedTest(String testId) {
+    if (testId == null) return;
+    ITreeItem node = m_treeItemMap.get(testId);
+    if (node != null) {
+      m_tree.select(node.getTreeItem());
+    } else {
+      m_tree.deselectAll();
+    }
+  }
+
+  @Override
+  public Image getImage() {
+    return m_testHierarchyIcon;
+  }
+
+  @Override
+  public Composite createTabControl(Composite parent, TestRunnerViewPart runner) {
     m_testRunnerPart = runner;
 
-    CTabItem hierarchyTab = new CTabItem(tabFolder, SWT.NONE);
-    hierarchyTab.setText(getName());
-    hierarchyTab.setImage(m_testHierarchyIcon);
-
-    Composite  testTreePanel = new Composite(tabFolder, SWT.NONE);
+    Composite result = new Composite(parent, SWT.NONE);
     GridLayout gridLayout = new GridLayout();
     gridLayout.marginHeight = 0;
     gridLayout.marginWidth = 0;
-    testTreePanel.setLayout(gridLayout);
+    gridLayout.numColumns = 3;
+    result.setLayout(gridLayout);
 
     GridData gridData = new GridData(GridData.GRAB_HORIZONTAL | GridData.GRAB_VERTICAL);
-    testTreePanel.setLayoutData(gridData);
+    result.setLayoutData(gridData);
 
-    hierarchyTab.setControl(testTreePanel);
-    hierarchyTab.setToolTipText(ResourceUtil.getString(getTooltipKey())); //$NON-NLS-1$
+    // The sash is the parent of both the tree and the stack trace component
+    m_sashForm = new SashForm(result, SWT.HORIZONTAL);
+    m_sashForm.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
-    m_tree = new Tree(testTreePanel, SWT.V_SCROLL | SWT.SINGLE);
+    //
+    // Tree
+    //
+    m_tree = new Tree(m_sashForm, SWT.V_SCROLL | SWT.SINGLE);
 
-    gridData = new GridData(GridData.FILL_BOTH
-                            | GridData.GRAB_HORIZONTAL
-                            | GridData.GRAB_VERTICAL);
+    //
+    // Stack trace (FailureComponent)
+    //
+    ViewForm stackTraceForm = new ViewForm(m_sashForm, SWT.NONE);
+    stackTraceForm.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+    CLabel label = new CLabel(stackTraceForm, SWT.NONE);
+    label.setText(ResourceUtil.getString("TestRunnerViewPart.label.failure")); //$NON-NLS-1$
+    label.setImage(m_stackViewIcon);
+    stackTraceForm.setTopLeft(label);
 
-    m_tree.setLayoutData(gridData);
+    ToolBar failureToolBar = new ToolBar(stackTraceForm, SWT.FLAT | SWT.WRAP);
+    stackTraceForm.setTopCenter(failureToolBar);
+    m_failureTraceComponent = new FailureTrace(stackTraceForm, m_testRunnerPart, failureToolBar);
+    stackTraceForm.setContent(m_failureTraceComponent.getComposite());
 
+    m_sashForm.setWeights(new int[] { 50, 50 });
+
+    initImages();
     initMenu();
     addListeners();
+
+    m_parentComposite = result;
+
+    return result;
   }
 
   private void initMenu() {
@@ -148,18 +200,20 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
   }
 
   void disposeIcons() {
-    m_suiteIcon.dispose();
-    m_suiteOkeIcon.dispose();
-    m_suiteFailIcon.dispose();
-    m_suiteSkipIcon.dispose();
-    m_suiteRunIcon.dispose();
-
-    m_testHierarchyIcon.dispose();
-    m_testIcon.dispose();
-    m_testOkeIcon.dispose();
-    m_testFailIcon.dispose();
-    m_testSkipIcon.dispose();
-    m_testRunIcon.dispose();
+//    if (m_suiteIcon != null) m_suiteIcon.dispose();
+//    if (m_suiteOkeIcon != null) m_suiteOkeIcon.dispose();
+//    if (m_suiteFailIcon != null) m_suiteFailIcon.dispose();
+//    if (m_suiteSkipIcon != null) m_suiteSkipIcon.dispose();
+//    if (m_suiteRunIcon != null) m_suiteRunIcon.dispose();
+//
+//    if (m_testHierarchyIcon != null) m_testHierarchyIcon.dispose();
+//    if (m_testIcon != null) m_testIcon.dispose();
+//    if (m_testOkeIcon != null) m_testOkeIcon.dispose();
+//    if (m_testFailIcon != null) m_testFailIcon.dispose();
+//    if (m_testSkipIcon != null) m_testSkipIcon.dispose();
+//    if (m_testRunIcon != null) m_testRunIcon.dispose();
+//
+//    if (m_stackViewIcon != null) m_stackViewIcon.dispose();
   }
 
   void handleDoubleClick(MouseEvent e) {
@@ -211,18 +265,9 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
     }
   }
 
-  protected abstract String getTooltipKey();
-  
-  protected abstract String getSelectedTestKey();
-
   private Map<String, ITreeItem> m_treeItemMap = Maps.newHashMap();
   private Set<RunInfo> m_runInfos = Sets.newHashSet();
-  private String m_searchFilter;
-
-  private String getId(RunInfo runInfo) {
-    return runInfo.getSuiteName() + "." + runInfo.getTestName() + "." + runInfo.getClassName()
-        + "." + runInfo.getMethodName();
-  }
+  private String m_searchFilter = "";
 
   @Override
   public void updateTestResult(RunInfo runInfo) {
@@ -235,7 +280,7 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
     // in from RemoteTestNG get tested against it as well
     if (acceptTestResult(runInfo) && matchesSearchFilter(runInfo)) {
       p("New result: " + runInfo);
-      String id = getId(runInfo);
+      String id = runInfo.getMethodId();
       ITreeItem iti = m_treeItemMap.get(id);
       TreeItem ti;
       TreeItem parentItem = null;
@@ -249,6 +294,9 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
         parentItem = ti.getParentItem();
       }
       propagateTestResult(parentItem, runInfo);
+    } else {
+      p("Excluded " + runInfo + " reason:" + acceptTestResult(runInfo) + " "
+          + matchesSearchFilter(runInfo));
     }
 
     postExpandAll();
@@ -267,7 +315,11 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
   }
 
   private boolean matchesSearchFilter(RunInfo runInfo) {
-    return Pattern.matches(".*" + m_searchFilter + ".*", runInfo.getMethodDisplay());
+    if ("".equals(m_searchFilter)) return true;
+    else {
+      return Pattern.matches(".*" + m_searchFilter.toLowerCase() + ".*",
+          runInfo.getMethodDisplay().toLowerCase());
+    }
   }
 
   /**
@@ -297,25 +349,25 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
    * @return the parent tree item for this ResultInfo, possibly creating all the
    * other parents if they don't exist yet.
    */
-  private ITreeItem maybeCreateParents(RunInfo trm) {
-    String suiteId = trm.getSuiteName();
+  private ITreeItem maybeCreateParents(RunInfo runInfo) {
+    String suiteId = runInfo.getSuiteName();
     ITreeItem suiteTreeItem = m_treeItemMap.get(suiteId);
     if (suiteTreeItem == null) {
-      suiteTreeItem = new SuiteTreeItem(m_tree, trm);
+      suiteTreeItem = new SuiteTreeItem(m_tree, runInfo);
       registerTreeItem(suiteId, suiteTreeItem);
     }
 
-    String testId = suiteId + "." + trm.getTestName();
+    String testId = runInfo.getTestId();
     ITreeItem testTreeItem = m_treeItemMap.get(testId);
     if (testTreeItem == null) {
-      testTreeItem = new TestTreeItem(suiteTreeItem.getTreeItem(), trm);
+      testTreeItem = new TestTreeItem(suiteTreeItem.getTreeItem(), runInfo);
       registerTreeItem(testId, testTreeItem);
     }
 
-    String classId = testId + "." + trm.getClassName();
+    String classId = runInfo.getClassId();
     ITreeItem classTreeItem = m_treeItemMap.get(classId);
     if (classTreeItem == null) {
-      classTreeItem = new ClassTreeItem(testTreeItem.getTreeItem(), trm);
+      classTreeItem = new ClassTreeItem(testTreeItem.getTreeItem(), runInfo);
       registerTreeItem(classId, classTreeItem);
     }
 
@@ -326,6 +378,7 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
   public void aboutToStart() {
     m_tree.removeAll();
     m_treeItemMap = new Hashtable<String, ITreeItem>();
+    m_failureTraceComponent.clear();
   }
 
   @Override
@@ -371,8 +424,26 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
     }
   }
 
+  private RunInfo getSelectedRunInfo() {
+    TreeItem[] treeItems = m_tree.getSelection();
+    if (treeItems.length == 0) {
+      return null;
+    } else {
+      ITreeItem iti = BaseTreeItem.getTreeItem(treeItems[0]);
+      return iti.getRunInfo();
+    }
+  }
+
   private void testSelected() {
-    m_testRunnerPart.handleTestSelected(getSelectedTreeItem().getRunInfo());
+    postSyncRunnable(new Runnable() {
+    public void run() {
+      m_failureTraceComponent.showFailure(getSelectedRunInfo());
+    }
+  });
+  }
+
+  private void postSyncRunnable(Runnable r) {
+    m_tree.getDisplay().syncExec(r);
   }
 
   private void registerTreeItem(String id, ITreeItem treeItem) {
@@ -395,4 +466,69 @@ abstract public class AbstractTab extends TestRunTab implements IMenuListener {
 
     m_tree.getDisplay().syncExec(expandRunnable);
   }
+
+  private void initImages() {
+    m_suiteIcon = Images.getImage(IMG_SUITE);
+    m_suiteOkeIcon = Images.getImage(IMG_SUITE_OK);
+    m_suiteSkipIcon = Images.getImage(IMG_SUITE_SKIP);
+    m_suiteFailIcon = Images.getImage(IMG_SUITE_FAIL);
+    m_suiteRunIcon = Images.getImage(IMG_SUITE_RUN);
+
+    m_testHierarchyIcon = Images.getImage(IMG_TEST_HIERARCHY); 
+    m_testIcon = Images.getImage(IMG_TEST);
+    m_testOkeIcon = Images.getImage(IMG_TEST_OK);
+    m_testSkipIcon = Images.getImage(IMG_TEST_SKIP);
+    m_testFailIcon = Images.getImage(IMG_TEST_FAIL);
+    m_testRunIcon = Images.getImage(IMG_TEST_RUN);
+    m_stackViewIcon = TestNGPlugin.getImageDescriptor("eview16/stackframe.gif")
+        .createImage(); //$NON-NLS-1$
+  }
+
+  private String getRatioTag() {
+    return getNameKey() + "." + TAG_RATIO;
+  }
+
+  @Override
+  public void saveState(IMemento memento) {
+    if(m_sashForm == null) {
+      // part has not been created
+      if(m_stateMemento != null) { //Keep the old state;
+        memento.putMemento(m_stateMemento);
+      }
+
+      return;
+    }
+
+    int[] weigths = m_sashForm.getWeights();
+    int   ratio = (weigths[0] * 1000) / (weigths[0] + weigths[1]);
+    memento.putInteger(getRatioTag(), ratio);
+  }
+
+  @Override
+  public void restoreState(IMemento memento) {
+    if (memento == null) return;
+
+    Integer ratio = memento.getInteger(getRatioTag());
+    if (ratio != null) {
+      m_sashForm.setWeights(new int[] { ratio.intValue(), 1000 - ratio.intValue() });
+    }
+
+  }
+
+  @Override
+  public void setOrientation(boolean horizontal) {
+    m_sashForm.setOrientation(horizontal ? SWT.HORIZONTAL : SWT.VERTICAL);
+  }
+
+//  private void addResizeListener(Composite parent) {
+//    parent.addControlListener(new ControlListener() {
+//      public void controlMoved(ControlEvent e) {
+//      }
+//
+//      public void controlResized(ControlEvent e) {
+//        computeOrientation();
+//      }
+//    });
+//  }
+
 }

@@ -1,17 +1,9 @@
-/*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Common Public License v1.0
- * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- *
- * Contributors:
- *     IBM Corporation - initial API and implementation
- *******************************************************************************/
 package org.testng.eclipse.ui;
 
-
-import org.eclipse.swt.custom.CTabFolder;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.ui.IMemento;
+import org.eclipse.ui.IViewSite;
 import org.testng.eclipse.util.ResourceUtil;
 
 /**
@@ -21,17 +13,25 @@ public abstract class TestRunTab {
 
   /**
    * Create the tab control
-   * @param tabFolder the containing tab folder
+   * @param parent the containing tab folder
    * @param clipboard the clipboard to be used by the tab
    * @param runner the testRunnerViewPart containing the tab folder
    */
-  public abstract void createTabControl(CTabFolder tabFolder, TestRunnerViewPart runner);
+  public abstract Composite createTabControl(Composite parent, TestRunnerViewPart runner);
 
   /**
    * @return the id of the currently selected node in the tree view or null if no nodes
-   * are selected.
+   * are selected. If the user selects an item on a tab and then switches to another tab,
+   * the new tab can then try to make a best effort to keep the same item selected.
    */
   public abstract String getSelectedTestId();
+
+  /**
+   * Ask this tab to select the item with the given id, if possible. Used when the user
+   * switches tabs.
+   */
+  public void setSelectedTest(String testId) {
+  }
 
   /**
    * Activates the TestRunView.
@@ -49,17 +49,6 @@ public abstract class TestRunTab {
    * Informs that the suite is about to start.
    */
   public void aboutToStart() {
-  }
-
-  /**
-   * Returns the name of the tab.
-   */
-  public abstract String getName();
-
-  /**
-   * Sets the current Test in the View
-   */
-  public void setSelectedTest(String testId) {
   }
 
   /**
@@ -85,5 +74,31 @@ public abstract class TestRunTab {
   }
 
   public void updateSearchFilter(String text) {
+  }
+
+  /**
+   * @return the resource key to display as a tooltip for this tab.
+   */
+  abstract public String getTooltipKey();
+
+  /**
+   * @return the resource key to display as as the name for this tab.
+   */
+  abstract public String getNameKey();
+
+  /**
+   * @return the icon for this tab
+   */
+  public Image getImage() {
+    return null;
+  }
+
+  public void restoreState(IMemento memento) {
+  }
+
+  public void saveState(IMemento memento) {
+  }
+
+  public void setOrientation(boolean horizontal) {
   }
 }
